@@ -15,6 +15,7 @@ import { SeededRandom, generateStarName, generatePlanetName, generateGalaxyName,
 import { GALAXY_PARTICLE_SHADER } from './src/shaders.js';
 import { createPlanet, createStar, createBlackHole, createNeutronStar, createMoon, createAsteroidBelt, createPlanetSurface, createGargantua } from './src/celestials.js';
 import { LifeSimulator } from './src/lifesim.js';
+import { SpaceAudioEngine } from './src/audio.js';
 
 /* ═══════════════════════════════════════════════════════════════
    SCALE HIERARCHY
@@ -50,7 +51,7 @@ document.body.appendChild(renderer.domElement);
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.5, 0.3, 0.4);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.4, 0.3, 0.8);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
@@ -86,7 +87,8 @@ const starColors = new Float32Array(starCount * 3);
 for (let i = 0; i < starCount; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(2 * Math.random() - 1);
-    const r = 5000 + Math.random() * 5000;
+    // Push stars out incredibly far so the camera never clips through them
+    const r = 30000 + Math.random() * 40000;
     starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
     starPositions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
     starPositions[i * 3 + 2] = r * Math.cos(phi);
@@ -489,6 +491,13 @@ function generateStarSystem(seed) {
     const starGroup = createStar(starData);
     systemGroup.add(starGroup);
     allShaderMaterials.push(starGroup.userData.material);
+    
+    // Dynamic Bloom based on Star Luminosity/Mass
+    if (bloom) {
+        // M-class (weak red) ~ 0.4. O-class (hyper blue) ~ 0.9. High threshold prevents planets from catching it.
+        bloom.strength = 0.35 + (spectral.luminosity * 0.55);
+        bloom.threshold = 0.85;
+    }
 
     // Possibly add exotic objects
     if (rng.chance(0.05)) {
@@ -585,6 +594,9 @@ function buildInterstellarSystem() {
     sunGroup = createGargantua(INTERSTELLAR_SYSTEM.star.renderRadius);
     systemGroup.add(sunGroup);
     allShaderMaterials.push(sunGroup.userData.material);
+
+    // Deep heavy bloom for Black Hole accretion disk exposure limits
+    if (bloom) bloom.strength = 1.0;
 
     INTERSTELLAR_SYSTEM.planets.forEach((pData) => {
         const planetGroup = createPlanet(pData, sunDirection);
@@ -767,12 +779,13 @@ function enterPlanet(data) {
     // Diverge camera placement based on planet type
     // Rocky/Water worlds: Orbit from exterior (R=6000).
     // Gas/Ice giants: View from interior of the cloud dome (Y=120).
-    const isGas = data.planetType === 'jupiter' || data.planetType === 'saturn' || data.planetType === 'uranus' || data.planetType === 'neptune';
+    const shType = data.shaderType || '';
+    const isGas = shType === 'jupiter' || shType === 'saturn' || shType === 'iceGiant';
     
     if (isGas) {
-        // Interior gas giant view
-        camera.position.set(0, 120, 400); // deep inside
-        controls.target.set(0, 120, 0); // look around horizontally
+        // Interior gas giant view — camera inside the nested cloud dome spheres
+        camera.position.set(0, 120, 400);
+        controls.target.set(0, 120, 0);
     } else {
         // Exterior sphere exploration view (above North Pole)
         camera.position.set(0, 6800, 1500);
@@ -1217,6 +1230,24 @@ function animate() {
         statObj.textContent = counts[currentScale] || '0 objects';
     }
 
+    // ── Audio Engine ──
+    if (spaceAudio.initialized) {
+        if (currentScale === SCALES.SYSTEM || currentScale === SCALES.GALAXY) {
+            spaceAudio.setSpaceDrone(0.8);
+            // Check proximity to any black hole in system
+            if (sunGroup && sunGroup.userData?.objectType === 'blackhole') {
+                const bhPos = new THREE.Vector3();
+                sunGroup.getWorldPosition(bhPos);
+                const dist = camera.position.distanceTo(bhPos);
+                spaceAudio.setBlackHoleProximity(dist, 100);
+            }
+        } else if (currentScale === SCALES.PLANET) {
+            spaceAudio.fadeOut();
+        } else {
+            spaceAudio.setSpaceDrone(0.3);
+        }
+    }
+
     controls.update();
     composer.render();
     
@@ -1224,5 +1255,12 @@ function animate() {
 
     requestAnimationFrame(animate);
 }
+
+// Initialize audio on first user interaction (browser policy)
+document.addEventListener('click', () => {
+    spaceAudio.init();
+}, { once: true });
+
+const spaceAudio = new SpaceAudioEngine();
 
 animate();

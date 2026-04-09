@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import {
     EARTH_SHADER, MARS_SHADER, JUPITER_SHADER, SATURN_SHADER,
     VENUS_SHADER, ROCKY_SHADER, ICE_GIANT_SHADER, STAR_SHADER,
-    ATMOSPHERE_SHADER, RING_SHADER, ACCRETION_SHADER, NEUTRON_SHADER,
+    ATMOSPHERE_SHADER, RING_SHADER, RAYMARCHED_BLACKHOLE_SHADER, NEUTRON_SHADER,
     TERRAIN_SHADER, WATER_SHADER, SKY_SHADER, WATER_WORLD_SHADER, ICE_WORLD_SHADER,
     GIANT_WAVE_SHADER, CLOUD_DOME_SHADER, PLANETARY_CLOUD_SHADER
 } from './shaders.js';
@@ -221,41 +221,29 @@ export function createStar(data) {
     return group;
 }
 
-/* ═══ CREATE BLACK HOLE ═══ */
+/* ═══ TRUE RAYMARCHED BLACK HOLE ═══ */
 export function createBlackHole(radius = 2.0) {
     const group = new THREE.Group();
 
-    // Event horizon (pure black sphere)
-    const horizonMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
-    const horizon = new THREE.Mesh(SPHERE_HI, horizonMat);
-    horizon.scale.setScalar(radius);
-    group.add(horizon);
-
-    // Accretion disk
-    const diskMat = new THREE.ShaderMaterial({
-        uniforms: cloneUniforms(ACCRETION_SHADER.uniforms),
-        vertexShader: ACCRETION_SHADER.vertexShader,
-        fragmentShader: ACCRETION_SHADER.fragmentShader,
+    // Single MASSIVE bounding volume. The Raymarcher operates purely INSIDE this sphere mapping relativity equations.
+    // We use BackSide so the camera can effortlessly fly *inside* the proxy limits to get closer to the singularity safely!
+    const boundsMat = new THREE.ShaderMaterial({
+        uniforms: cloneUniforms(RAYMARCHED_BLACKHOLE_SHADER.uniforms),
+        vertexShader: RAYMARCHED_BLACKHOLE_SHADER.vertexShader,
+        fragmentShader: RAYMARCHED_BLACKHOLE_SHADER.fragmentShader,
         transparent: true,
         blending: THREE.AdditiveBlending,
-        side: THREE.DoubleSide,
+        side: THREE.BackSide,
         depthWrite: false,
     });
-    const disk = new THREE.Mesh(new THREE.PlaneGeometry(radius * 10, radius * 10), diskMat);
-    disk.rotation.x = Math.PI / 2;
-    group.add(disk);
-
-    // Gravitational lensing ring (simple torus)
-    const lensMat = new THREE.MeshBasicMaterial({
-        color: 0xffaa33, transparent: true, opacity: 0.15,
-        side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
-    });
-    const lens = new THREE.Mesh(new THREE.TorusGeometry(radius * 1.5, 0.05, 16, 64), lensMat);
-    group.add(lens);
+    
+    // Create a sphere proxy spanning roughly 20x the event horizon radius to encompass the full gravitational lensing curve bounds
+    const boundsSphere = new THREE.Mesh(new THREE.SphereGeometry(radius * 20, 32, 32), boundsMat);
+    group.add(boundsSphere);
 
     group.userData = {
         name: 'Black Hole', type: 'EXOTIC', classification: 'Stellar Black Hole',
-        objectType: 'blackhole', material: diskMat, renderRadius: radius,
+        objectType: 'blackhole', material: boundsMat, renderRadius: radius,
     };
     return group;
 }
@@ -264,28 +252,6 @@ export function createGargantua(radius = 8.0) {
     const group = createBlackHole(radius);
     group.userData.name = 'Gargantua';
     group.userData.classification = 'Supermassive Black Hole';
-    
-    // Scale up the accretion disk
-    const disk = group.children.find(c => c.type === 'Mesh' && c.material instanceof THREE.ShaderMaterial);
-    if (disk) {
-        disk.scale.set(2.5, 2.5, 2.5);
-    }
-    
-    // Scale up the lens
-    const lens = group.children.find(c => c.geometry instanceof THREE.TorusGeometry);
-    if (lens) {
-        lens.scale.setScalar(1.5);
-    }
-
-    // Extra photon sphere glow
-    const glowMat = new THREE.MeshBasicMaterial({
-        color: 0xffaa55, transparent: true, opacity: 0.15,
-        blending: THREE.AdditiveBlending, side: THREE.BackSide,
-    });
-    const glow = new THREE.Mesh(SPHERE_HI, glowMat);
-    glow.scale.setScalar(radius * 1.8);
-    group.add(glow);
-
     group.userData.isGargantua = true;
     return group;
 }
@@ -389,7 +355,7 @@ export function createPlanetSurface(data) {
     const isIceGiant = type === 'iceGiant';
     // Water types
     const isWaterWorld = type === 'waterWorld';
-    const hasWater = type === 'earth' || isWaterWorld;
+    const hasWater = isWaterWorld;
     // Ice surface (Mann's planet style)
     const isIceWorld = type === 'iceWorld';
 
@@ -411,12 +377,16 @@ export function createPlanetSurface(data) {
     const GROUND_SEGS_H = 128;
 
     if (!isGas && !isIceGiant) {
-        // --- Terrain ground ---
+        const isEarth = (type === 'earth');
+        const isWaterWorldLocal = isWaterWorld;
+
         const terrainMat = new THREE.ShaderMaterial({
             uniforms: {
                 time:      { value: 0 },
                 sunDir:    { value: sunDir.clone() },
                 baseColor: { value: baseColor.clone() },
+                isEarthLike: { value: (isEarth || isWaterWorldLocal) ? 1.0 : 0.0 },
+                waterLevel: { value: isEarth ? 0.58 : (isWaterWorldLocal ? 0.85 : 0.45) }
             },
             vertexShader:   TERRAIN_SHADER.vertexShader,
             fragmentShader: TERRAIN_SHADER.fragmentShader,
@@ -503,16 +473,6 @@ export function createPlanetSurface(data) {
             group.add(mesh);
             group.userData.cloudMats.push(mat);
         });
-
-        // Haze floor plane so it doesn't look like floating in nothing
-        const hazeMat = new THREE.MeshBasicMaterial({
-            color: new THREE.Color(cloudColors.x * 0.3, cloudColors.y * 0.3, cloudColors.z * 0.3),
-            transparent: true, opacity: 0.6,
-        });
-        const hazePlane = new THREE.Mesh(new THREE.PlaneGeometry(8000, 8000), hazeMat);
-        hazePlane.rotation.x = -Math.PI / 2;
-        hazePlane.position.y = -200;
-        group.add(hazePlane);
     }
 
     // ── SKY DOME ─────────────────────────────────────────────────
@@ -544,15 +504,9 @@ export function createPlanetSurface(data) {
             depthWrite: false,
         });
         // Sky dome: large enough to always surround the camera
-        const sky = new THREE.Mesh(new THREE.SphereGeometry(9000, 32, 32), skyMat);
+        const sky = new THREE.Mesh(new THREE.SphereGeometry(25000, 32, 32), skyMat);
         group.add(sky);
         group.userData.skyMat = skyMat;
-    } else {
-        // No atmosphere — just a starfield tint
-        const voidMat = new THREE.MeshBasicMaterial({
-            color: 0x000005, side: THREE.BackSide,
-        });
-        group.add(new THREE.Mesh(new THREE.SphereGeometry(9000, 16, 16), voidMat));
     }
 
     // ── LIGHTING ─────────────────────────────────────────────────

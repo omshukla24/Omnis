@@ -451,38 +451,109 @@ export const RING_SHADER = {
     `
 };
 
-/* ═══ BLACK HOLE ACCRETION DISK SHADER ═══ */
-export const ACCRETION_SHADER = {
+/* ═══ TRUE RAYMARCHED GRAVITATIONAL LENSING (BLACK HOLE) ═══ */
+export const RAYMARCHED_BLACKHOLE_SHADER = {
     uniforms: { time: { value: 0 } },
     vertexShader: `
-        varying vec2 vUv;
+        varying vec3 vWorldPos;
         void main() {
-            vUv = uv;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+            vWorldPos = worldPosition.xyz;
+            gl_Position = projectionMatrix * viewMatrix * worldPosition;
         }
     `,
     fragmentShader: `
         uniform float time;
-        varying vec2 vUv;
+        varying vec3 vWorldPos;
+        
         ${GLSL_NOISE}
+
+        // Mathematical Volumetric Disk
+        float disk(vec3 p) {
+            float r = length(p.xz);
+            float h = abs(p.y);
+            float inner = 2.4;
+            float outer = 9.0;
+            if(r < inner || r > outer) return 0.0;
+            
+            float wedge = 0.08 * r;
+            if(h > wedge) return 0.0;
+            
+            float angle = atan(p.z, p.x);
+            float spin = angle + time * 3.0 - r * 1.5;
+            float turb = noise2D(vec2(spin * 2.0, r * 2.0 + time));
+            
+            float falloff = smoothstep(wedge, 0.0, h) * smoothstep(outer, outer-2.0, r) * smoothstep(inner, inner+0.5, r);
+            return turb * falloff;
+        }
+
         void main() {
-            vec2 uv = vUv - 0.5;
-            float dist = length(uv) * 2.0;
-            if (dist < 0.2 || dist > 1.0) discard;
-            float angle = atan(uv.y, uv.x);
-            float spin = angle + time * 4.0 - dist * 6.0;
-            float rings = sin(dist * 30.0 - time * 8.0) * 0.5 + 0.5;
-            float spirals = sin(spin * 5.0) * 0.5 + 0.5;
-            float turb = noise2D(vec2(spin * 2.0, dist * 10.0 + time));
-            float intensity = (1.0 - dist) * 3.0;
-            intensity *= (rings * 0.5 + 0.5) * (spirals * 0.4 + 0.6) * (turb * 0.3 + 0.7);
-            vec3 innerColor = vec3(1.0, 0.95, 0.8);
-            vec3 midColor = vec3(1.0, 0.5, 0.1);
-            vec3 outerColor = vec3(0.8, 0.15, 0.02);
-            vec3 color = mix(outerColor, midColor, smoothstep(0.7, 0.4, dist));
-            color = mix(color, innerColor, smoothstep(0.4, 0.22, dist));
-            float alpha = smoothstep(1.0, 0.7, dist) * smoothstep(0.2, 0.25, dist) * intensity;
-            gl_FragColor = vec4(color * intensity, alpha * 0.9);
+            vec3 ro = cameraPosition;
+            vec3 rd = normalize(vWorldPos - cameraPosition);
+            
+            vec3 p = cameraPosition;
+            
+            // Check if camera is way far away outside the proxy limits, if so we jump ray forward to save steps
+            float distToOrigin = length(cameraPosition);
+            if(distToOrigin > 15.0) {
+                p = cameraPosition + rd * (distToOrigin - 14.0); 
+            }
+
+            vec3 v = rd;
+            
+            vec3 col = vec3(0.0);
+            float alpha = 0.0;
+            
+            // Schwarzschild logic
+            float mass = 1.0;
+            float rs = 2.0 * mass;
+            float rs2 = rs * rs;
+            
+            float dt = 0.1;
+            bool hitHorizon = false;
+            
+            for(int i=0; i<75; i++) {
+                float r2 = dot(p, p);
+                if(r2 < rs2) {
+                    hitHorizon = true;
+                    break;
+                }
+                
+                // Gravity Ray Bending (Euler integration of geodesics)
+                // v' = v + (G * p / r^3)
+                vec3 g = -normalize(p) * mass / (r2);
+                v = normalize(v + g * dt * 2.2);
+                p += v * dt;
+                
+                // Sample Volumetric Accretion Disk
+                if(abs(p.y) < 1.0) {
+                    float d = disk(p);
+                    if(d > 0.0) {
+                        float distNorm = length(p.xz);
+                        // Temperature color gradient (Blue/white hot inner -> orange/red outer)
+                        vec3 ringCol = mix(vec3(1.0, 0.9, 0.8), vec3(0.9, 0.3, 0.05), (distNorm - 2.4)/6.6);
+                        float glow = d * 0.15;
+                        col += ringCol * glow * (1.0 - alpha);
+                        alpha += glow;
+                    }
+                }
+                
+                if(alpha >= 0.99) break;
+                if(r2 > 400.0) break; // Escaped local lens bounds
+                
+                dt = 0.02 + sqrt(r2)*0.04;
+            }
+            
+            if(hitHorizon && alpha < 0.2) {
+                // Event Horizon
+                gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+            } else if (alpha > 0.01) {
+                // Superheated core bloom
+                col += vec3(1.0, 0.9, 0.6) * smoothstep(0.7, 1.0, alpha) * 0.5;
+                gl_FragColor = vec4(col, alpha);
+            } else {
+                discard;
+            }
         }
     `
 };
@@ -548,57 +619,106 @@ export const TERRAIN_SHADER = {
         time: { value: 0 },
         sunDir: { value: null },
         baseColor: { value: new THREE.Vector3(0.5, 0.4, 0.3) },
+        isEarthLike: { value: 0.0 }, // 1.0 for earth/water
+        waterLevel: { value: 0.0 },  // Sets sea level
     },
     vertexShader: `
         uniform float time;
         varying vec2 vUv;
         varying vec3 vNormal;
+        varying vec3 vPos;
         varying vec3 vWorldPos;
-        ${GLSL_NOISE}
+        
+        // No GLSL_NOISE in vertex shader, we pass raw positions for infinite resolution texturing
         void main() {
-            vec3 n = normalize(position); // direction from center
-            float eps = 0.002;
-            vec3 up = abs(n.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-            vec3 tangent = normalize(cross(up, n));
-            vec3 bitangent = cross(n, tangent);
-
-            float h  = fbm3(n * 5.0, 6) * 400.0;
-            float hx = fbm3(normalize(n + tangent * eps) * 5.0, 6) * 400.0;
-            float hy = fbm3(normalize(n + bitangent * eps) * 5.0, 6) * 400.0;
+            vec3 n = normalize(position);
+            vNormal = normalize(normalMatrix * n);
+            vPos = position;
             
-            vec3 pos = position + n * max(0.0, h);
-            
-            float dw = 6000.0;
-            vec3 tx = normalize(tangent * eps * dw + n * (hx - h));
-            vec3 ty = normalize(bitangent * eps * dw + n * (hy - h));
-            vec3 localNormal = normalize(cross(tx, ty)); // tangent-space derived normal
-            
-            vNormal = normalize(normalMatrix * localNormal);
-            vec4 worldPos = modelMatrix * vec4(pos, 1.0);
+            vec4 worldPos = modelMatrix * vec4(position, 1.0);
             vWorldPos = worldPos.xyz;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+            gl_Position = projectionMatrix * viewMatrix * worldPos; // MUST INCLUDE viewMatrix!
         }
     `,
     fragmentShader: `
         uniform vec3 sunDir;
         uniform vec3 baseColor;
+        uniform float isEarthLike;
+        uniform float waterLevel;
         varying vec3 vNormal;
+        varying vec3 vPos;
         varying vec3 vWorldPos;
+        
+        ${GLSL_NOISE}
+        
         void main() {
             vec3 n = normalize(vNormal);
             vec3 l = normalize(sunDir);
             float NdotL = max(dot(n, l), 0.0);
-            float height = clamp((length(vWorldPos) - 6000.0) / 400.0, 0.0, 1.0);
-            vec3 low   = baseColor * 0.45;
-            vec3 mid   = baseColor * 0.85;
-            vec3 high  = baseColor * 1.2;
-            vec3 snow  = vec3(0.92, 0.95, 0.98);
-            vec3 col = mix(low, mid, smoothstep(0.0, 0.4, height));
-            col = mix(col, high, smoothstep(0.4, 0.7, height));
-            col = mix(col, snow, smoothstep(0.75, 0.9, height));
-            float slope = 1.0 - max(dot(n, normalize(vWorldPos)), 0.0);
-            col = mix(col, col * 0.6, slope * 0.5);
-            vec3 lit = col * (0.15 + NdotL * 0.85);
+            
+            vec3 posNorm = normalize(vPos);
+            float noiseHeight = fbm3(posNorm * 2.5, 7); 
+            float detailHeight = fbm3(posNorm * 12.0, 5) * 0.15;
+            float finalHeight = noiseHeight + detailHeight;
+            
+            vec3 albedo = vec3(0.0);
+            float specular = 0.0;
+            
+            if (finalHeight < waterLevel) {
+                if (isEarthLike > 0.5) {
+                    // True Oceans
+                    float depthStr = smoothstep(waterLevel - 0.1, waterLevel, finalHeight);
+                    vec3 deepWater = vec3(0.02, 0.08, 0.20);
+                    vec3 shallowWater = vec3(0.05, 0.30, 0.45);
+                    albedo = mix(deepWater, shallowWater, depthStr);
+                    
+                    vec3 viewDir = normalize(cameraPosition - vWorldPos);
+                    vec3 halfVector = normalize(l + viewDir);
+                    float NdotH = max(dot(n, halfVector), 0.0);
+                    specular = pow(NdotH, 200.0) * 1.5;
+                } else {
+                    // Dark alien flatlands/basins
+                    albedo = baseColor * 0.5;
+                    specular = 0.0;
+                }
+            } else {
+                float landHeight = clamp((finalHeight - waterLevel) / (1.0 - waterLevel), 0.0, 1.0);
+                
+                if (isEarthLike > 0.5) {
+                    vec3 sand = vec3(0.76, 0.70, 0.50);
+                    vec3 forest = baseColor;
+                    vec3 rock = vec3(0.40, 0.38, 0.35);
+                    vec3 snow = vec3(0.95, 0.98, 1.00);
+                    
+                    albedo = sand;
+                    albedo = mix(albedo, forest, smoothstep(0.0, 0.05, landHeight));
+                    albedo = mix(albedo, rock, smoothstep(0.4, 0.5, landHeight));
+                    albedo = mix(albedo, snow, smoothstep(0.75, 0.85, landHeight));
+                    
+                    float lat = abs(posNorm.y);
+                    albedo = mix(albedo, snow, smoothstep(0.85, 0.95, lat)); 
+                } else {
+                    // Alien rocky procedural terrain
+                    vec3 darkRock = baseColor * 0.7;
+                    vec3 lightRock = mix(baseColor, vec3(1.0), 0.2);
+                    albedo = baseColor;
+                    albedo = mix(albedo, darkRock, smoothstep(0.0, 0.1, landHeight));
+                    albedo = mix(albedo, lightRock, smoothstep(0.6, 0.8, landHeight));
+                    
+                    // Simple white poles if it resembles Mars
+                    float lat = abs(posNorm.y);
+                    if (baseColor.r > 0.6 && baseColor.g < 0.4) {
+                        albedo = mix(albedo, vec3(0.95), smoothstep(0.92, 0.96, lat));
+                    }
+                }
+                specular = 0.0;
+            }
+            
+            // Final Lighting
+            vec3 ambient = albedo * 0.05;
+            vec3 diffuse = albedo * NdotL * 0.95;
+            vec3 lit = ambient + diffuse + (vec3(1.0) * specular * NdotL);
+            
             gl_FragColor = vec4(lit, 1.0);
         }
     `
@@ -758,19 +878,36 @@ export const CLOUD_DOME_SHADER = {
         ${GLSL_NOISE}
         void main() {
             vec3 n = normalize(vNormal);
-            float NdotL = max(dot(-n, normalize(sunDir)), 0.0); // inner face
-            vec3 p = normalize(vPos) * cloudScale + vec3(time * 0.05, 0.0, time * 0.03);
-            float noise = fbm(p, 5);
-            float band = sin(normalize(vPos).y * 12.0 + noise * 3.0) * 0.5 + 0.5;
-            vec3 col = mix(baseColor * 0.5, baseColor * 1.4, band * 0.6 + noise * 0.4);
-            col *= (0.4 + NdotL * 0.6);
-            float alpha = clamp(0.5 + noise * 0.5, 0.3, 0.9);
+            float NdotL = max(dot(-n, normalize(sunDir)), 0.0);
+            
+            // MATH FOR ZONAL WINDS 
+            // Swirling bands driven in opposite directions based on Latitude (vPos.y)
+            vec3 p = normalize(vPos) * cloudScale;
+            float lat = p.y;
+            float flow = sin(lat * 15.0); // positive or negative direction based on band
+            p.x += flow * time * 0.25; 
+            p.z += flow * time * 0.15;
+            
+            // Add vertical convective turbulence slowly
+            p.y -= time * 0.08;
+            
+            float noise = fbm3(p, 6);
+            
+            // Belt boundaries
+            float band = sin(lat * 20.0 + noise * 4.0) * 0.5 + 0.5;
+            vec3 stormColor = baseColor * 0.5;
+            vec3 cloudColor = baseColor * 1.4;
+            
+            vec3 col = mix(stormColor, cloudColor, band * 0.7 + noise * 0.3);
+            col *= (0.3 + NdotL * 0.7);
+            
+            float alpha = clamp(0.5 + noise * 0.5, 0.2, 0.95);
             gl_FragColor = vec4(col, alpha);
         }
     `
 };
 
-/* ═══ SURFACE SKY SHADER ═══ */
+/* ═══ TRUE OPTICAL DEPTH ATMOSPHERE SHADER ═══ */
 export const SKY_SHADER = {
     uniforms: {
         skyColor: { value: new THREE.Vector3(0.3, 0.6, 1.0) },
@@ -779,7 +916,6 @@ export const SKY_SHADER = {
     vertexShader: `
         varying vec3 vDir;
         void main() {
-            // Pass world-space direction for sky gradient
             vec4 worldPos = modelMatrix * vec4(position, 1.0);
             vDir = normalize(worldPos.xyz - cameraPosition);
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -789,29 +925,103 @@ export const SKY_SHADER = {
         uniform vec3 skyColor;
         uniform vec3 sunDir;
         varying vec3 vDir;
+        
+        #define PLANET_RADIUS 6000.0
+        #define ATMOS_RADIUS 9000.0
+        #define RAY_STEPS 16
+        #define LIGHT_STEPS 4
+
+        // Ray-Sphere Intersection
+        vec2 rsi(vec3 r0, vec3 rd, float sr) {
+            float a = dot(rd, rd);
+            float b = 2.0 * dot(rd, r0);
+            float c = dot(r0, r0) - (sr * sr);
+            float d = (b*b) - 4.0*a*c;
+            if (d < 0.0) return vec2(1e5, -1e5);
+            return vec2(
+                (-b - sqrt(d))/(2.0*a),
+                (-b + sqrt(d))/(2.0*a)
+            );
+        }
+
         void main() {
-            vec3 d = normalize(vDir);
-            vec3 sd = normalize(sunDir);
+            vec3 rd = normalize(vDir);
+            vec3 ro = cameraPosition; // Since planet is at (0,0,0) locally relative to camera
+            vec3 pSun = normalize(sunDir);
             
-            // Atmospheric day/night masking
-            float sunPhase = dot(d, sd);
-            float dayLighting = smoothstep(-0.2, 0.5, sunPhase);
+            vec2 p = rsi(ro, rd, ATMOS_RADIUS);
+            if (p.x > p.y) discard; // Escaped bounding atmospheric sphere
             
-            float up = max(d.y, 0.0);
-            vec3 zenith  = skyColor * 0.6;
-            vec3 midAtmo = skyColor;
-            vec3 horiz   = skyColor * 1.3 + vec3(0.2, 0.1, 0.0);
-            vec3 col = mix(horiz, midAtmo, smoothstep(0.0, 0.3, up));
-            col = mix(col, zenith, smoothstep(0.3, 1.0, up));
-            float sunDot = max(sunPhase, 0.0);
-            float sunDisc = smoothstep(0.9994, 0.9998, sunDot);
-            float sunHalo = pow(sunDot, 12.0) * 0.5;
-            col += vec3(1.0, 0.95, 0.8) * (sunDisc + sunHalo);
-            col = mix(vec3(0.05, 0.05, 0.06), col, smoothstep(-0.08, 0.04, d.y));
+            p.y = min(p.y, rsi(ro, rd, PLANET_RADIUS).x);
             
-            // Fades alpha gracefully into night spaces so background stars dynamically show ONLY appropriately
-            float alpha = clamp(dayLighting + smoothstep(0.1, 0.0, up), 0.0, 1.0);
-            gl_FragColor = vec4(col * (0.1 + dayLighting * 0.9), alpha);
+            float stepSize = (p.y - max(p.x, 0.0)) / float(RAY_STEPS);
+            float stepLen = max(p.x, 0.0) + stepSize * 0.5;
+            
+            // Dynamic Rayleigh properties based on generated planet biome skyColor
+            vec3 betaR = skyColor * 0.00003; 
+            float betaM = 0.000006;
+            float hR = 400.0; // Rayleigh threshold altitude map
+            float hM = 200.0; // Mie thick dust boundary
+            
+            float odR = 0.0, odM = 0.0;
+            vec3 scatterR = vec3(0.0);
+            vec3 scatterM = vec3(0.0);
+            
+            float mu = dot(rd, pSun);
+            float mumu = mu * mu;
+            float phaseR = 3.0 / (16.0 * 3.14159) * (1.0 + mumu);
+            float g = 0.76;
+            float phaseM = 3.0 / (8.0 * 3.14159) * ((1.0 - g*g) * (1.0 + mumu)) / ((2.0 + g*g) * pow(1.0 + g*g - 2.0*g*mu, 1.5));
+            
+            for (int i = 0; i < RAY_STEPS; i++) {
+                vec3 iPos = ro + rd * stepLen;
+                float height = length(iPos) - PLANET_RADIUS;
+                if (height < 0.0) break;
+                
+                // Density calculation relative to altitude
+                float hr = exp(-height / hR) * stepSize;
+                float hm = exp(-height / hM) * stepSize;
+                odR += hr;
+                odM += hm;
+                
+                // Secondary check for optical occlusion against sun penetration (Planet shadow/dusk cutoff)
+                vec2 ls = rsi(iPos, pSun, ATMOS_RADIUS);
+                float lStepSize = ls.y / float(LIGHT_STEPS);
+                float lStepLen = lStepSize * 0.5;
+                float lodR = 0.0, lodM = 0.0;
+                
+                bool eclipsed = false;
+                for (int j = 0; j < LIGHT_STEPS; j++) {
+                    vec3 jPos = iPos + pSun * lStepLen;
+                    float jHeight = length(jPos) - PLANET_RADIUS;
+                    if (jHeight < 0.0) { eclipsed = true; break; }
+                    lodR += exp(-jHeight / hR) * lStepSize;
+                    lodM += exp(-jHeight / hM) * lStepSize;
+                    lStepLen += lStepSize;
+                }
+                
+                // Additive in-scattering evaluation
+                if (!eclipsed) {
+                    vec3 attn = exp(-(betaR * (odR + lodR) + betaM * 1.1 * (odM + lodM)));
+                    scatterR += hr * attn;
+                    scatterM += hm * attn;
+                }
+                
+                stepLen += stepSize;
+            }
+            
+            vec3 col = scatterR * betaR * phaseR + scatterM * betaM * phaseM;
+            
+            // Over-exposure mapping (HDR emulation inside specific gas limits)
+            col *= 50.0;
+            col = 1.0 - exp(-col);
+            
+            // Pure optical day/night transparency
+            // As particles thin out, the physical visual light drops, fading identically off to reveal the true starry volume
+            float luminance = dot(col, vec3(0.2126, 0.7152, 0.0722));
+            float alpha = smoothstep(0.005, 0.08, luminance);
+            
+            gl_FragColor = vec4(col, clamp(alpha, 0.0, 0.95));
         }
     `
 };

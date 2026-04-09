@@ -164,7 +164,12 @@ export const SOLAR_SYSTEM = {
             shaderParams: {},
             moonData: [
                 { name: 'Titan', radiusKm: '2,575 km', distKm: '1.22M km', renderDist: 4.0, renderRadius: 0.14 },
-                { name: 'Enceladus', radiusKm: '252 km', distKm: '238,000 km', renderDist: 2.8, renderRadius: 0.05 },
+                { name: 'Rhea', radiusKm: '764 km', distKm: '527,000 km', renderDist: 3.2, renderRadius: 0.06 },
+                { name: 'Iapetus', radiusKm: '735 km', distKm: '3.56M km', renderDist: 5.5, renderRadius: 0.06 },
+                { name: 'Dione', radiusKm: '562 km', distKm: '377,400 km', renderDist: 2.9, renderRadius: 0.05 },
+                { name: 'Tethys', radiusKm: '533 km', distKm: '294,600 km', renderDist: 2.6, renderRadius: 0.05 },
+                { name: 'Enceladus', radiusKm: '252 km', distKm: '238,000 km', renderDist: 2.3, renderRadius: 0.04 },
+                { name: 'Mimas', radiusKm: '198 km', distKm: '185,500 km', renderDist: 2.0, renderRadius: 0.03 },
             ]
         },
         {
@@ -188,6 +193,13 @@ export const SOLAR_SYSTEM = {
             renderRadius: 0.85,
             shaderType: 'iceGiant',
             shaderParams: { baseColor: [0.55, 0.82, 0.87], bandIntensity: 0.15 },
+            moonData: [
+                { name: 'Titania', radiusKm: '789 km', distKm: '436,300 km', renderDist: 3.5, renderRadius: 0.07 },
+                { name: 'Oberon', radiusKm: '761 km', distKm: '583,500 km', renderDist: 4.2, renderRadius: 0.07 },
+                { name: 'Umbriel', radiusKm: '585 km', distKm: '266,000 km', renderDist: 2.8, renderRadius: 0.05 },
+                { name: 'Ariel', radiusKm: '579 km', distKm: '190,900 km', renderDist: 2.2, renderRadius: 0.05 },
+                { name: 'Miranda', radiusKm: '236 km', distKm: '129,900 km', renderDist: 1.6, renderRadius: 0.03 },
+            ]
         },
         {
             name: 'Neptune',
