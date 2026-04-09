@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMNIS — Multiverse Space Simulator</title>
+    <meta name="description" content="OMNIS — Explore the infinite multiverse. Real planets with procedural shaders. Infinite galaxies. Life simulation across the cosmos.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Orbitron:wght@400;500;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <script type="module" crossorigin src="/assets/index-BqH-d5Ff.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-BbNKqHOM.css">
+</head>
+<body>
+    <!-- ═══ INTRO OVERLAY ═══ -->
+    <div id="intro-overlay">
+        <div class="intro-stars"></div>
+        <div class="intro-content">
+            <h1 class="intro-title" data-text="OMNIS">OMNIS</h1>
+            <p class="intro-subtitle">MULTIVERSE SPACE SIMULATOR</p>
+            <div class="intro-divider"></div>
+            <p class="intro-desc">Explore infinite galaxies. Discover life. Navigate the cosmos.</p>
+            <button id="enter-btn" class="enter-btn">
+                <span class="enter-icon">◆</span> ENTER THE MULTIVERSE
+            </button>
+        </div>
+    </div>
+
+    <!-- ═══ TOP NAVIGATION BAR ═══ -->
+    <header id="top-bar" class="ui-element hidden">
+        <div id="breadcrumb"></div>
+        <div id="scale-display">
+            <span class="scale-icon">⊚</span>
+            <span id="scale-value">MULTIVERSE</span>
+        </div>
+    </header>
+
+    <!-- ═══ OBJECT INFO PANEL ═══ -->
+    <div id="info-panel" class="glass-panel ui-element hidden">
+        <div class="panel-header">
+            <div class="panel-dot"></div>
+            <span id="info-title">—</span>
+        </div>
+        <div class="panel-divider"></div>
+        <div id="info-body">
+            <div class="info-row"><span class="info-label">TYPE</span><span class="info-value" id="info-type">—</span></div>
+            <div class="info-row"><span class="info-label">CLASS</span><span class="info-value" id="info-class">—</span></div>
+            <div class="info-row"><span class="info-label">MASS</span><span class="info-value" id="info-mass">—</span></div>
+            <div class="info-row"><span class="info-label">RADIUS</span><span class="info-value" id="info-radius">—</span></div>
+            <div class="info-row"><span class="info-label">TEMP</span><span class="info-value" id="info-temp">—</span></div>
+            <div class="info-row"><span class="info-label">DISTANCE</span><span class="info-value" id="info-dist">—</span></div>
+            <div class="info-row"><span class="info-label">MOONS</span><span class="info-value" id="info-moons">—</span></div>
+        </div>
+        <button id="enter-object-btn" class="panel-action-btn hidden">
+            <span class="btn-arrow">▶</span> ENTER
+        </button>
+    </div>
+
+    <!-- ═══ LIFE SIMULATION PANEL ═══ -->
+    <div id="life-panel" class="glass-panel ui-element hidden">
+        <div class="panel-header">
+            <div class="panel-dot life"></div>
+            <span>BIOSPHERE ANALYSIS</span>
+        </div>
+        <div class="panel-divider"></div>
+        <div id="life-body">
+            <div class="hab-gauge">
+                <div class="hab-ring" id="hab-ring">
+                    <svg viewBox="0 0 100 100">
+                        <circle class="hab-track" cx="50" cy="50" r="42"></circle>
+                        <circle class="hab-fill" id="hab-circle" cx="50" cy="50" r="42"></circle>
+                    </svg>
+                    <div class="hab-center">
+                        <span class="hab-pct" id="hab-pct">0</span>
+                        <span class="hab-unit">%</span>
+                    </div>
+                </div>
+                <span class="hab-label">HABITABILITY INDEX</span>
+            </div>
+            <div class="info-row"><span class="info-label">ATMOSPHERE</span><span class="info-value" id="life-atmo">—</span></div>
+            <div class="info-row"><span class="info-label">WATER</span><span class="info-value" id="life-water">—</span></div>
+            <div class="info-row"><span class="info-label">SURFACE TEMP</span><span class="info-value" id="life-temp">—</span></div>
+            <div class="info-row"><span class="info-label">BIOSPHERE</span><span class="info-value" id="life-bio">—</span></div>
+            <div class="info-row"><span class="info-label">CIVILIZATION</span><span class="info-value" id="life-civ">—</span></div>
+            <div class="info-row"><span class="info-label">POPULATION</span><span class="info-value" id="life-pop">—</span></div>
+            <div class="info-row"><span class="info-label">TECH LEVEL</span><span class="info-value" id="life-tech">—</span></div>
+        </div>
+    </div>
+
+    <!-- ═══ CONTROLS HUD ═══ -->
+    <div id="controls-hud" class="ui-element hidden">
+        <div class="ctrl"><kbd>SCROLL</kbd> Zoom</div>
+        <div class="ctrl"><kbd>CLICK</kbd> Select</div>
+        <div class="ctrl"><kbd>DBL-CLICK</kbd> Enter</div>
+        <div class="ctrl"><kbd>ESC</kbd> Back</div>
+    </div>
+
+    <!-- ═══ STATS BAR ═══ -->
+    <div id="stats-bar" class="ui-element hidden">
+        <span id="stat-location">—</span>
+        <span class="stat-sep">|</span>
+        <span id="stat-objects">0 objects</span>
+    </div>
+
+    <!-- ═══ ZOOM TRANSITION ═══ -->
+    <div id="zoom-overlay" class="hidden"></div>
+
+    <!-- ═══ LABEL CONTAINER ═══ -->
+    <div id="label-container"></div>
+
+</body>
+</html>
